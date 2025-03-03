@@ -1,8 +1,8 @@
 pipeline:
   name: harness-java-test-app
   identifier: harness_java_test_app
-  projectIdentifier: MyProject
-  orgIdentifier: MyOrg
+  projectIdentifier: sbuserstandardbank3547
+  orgIdentifier: standardbank354org
   tags: {}
   stages:
     - stage:
