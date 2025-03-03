@@ -1,25 +1,125 @@
-- step:
-    type: Run
-    name: build
-    identifier: build
-    spec:
-      connectorRef: account.harnessImage
-      image: maven:3.8-jdk-11
-      shell: Sh
-      command: |-
-        mvn clean package dependency:copy-dependencies
-      - step:
-          type: Run
-          name: check dependencies
-          identifier: check_dependencies
-          spec:
-            connectorRef: account.harnessImage
-            image: maven:3.8-jdk-11
-            shell: Sh
-            command: |-
-              mvn dependency-check:check -U -DskipTests
-            reports:
-              type: JUnit
+pipeline:
+  name: harness-java-test-app
+  identifier: harness_java_test_app
+  projectIdentifier: MyProject
+  orgIdentifier: MyOrg
+  tags: {}
+  stages:
+    - stage:
+        name: Build and Test
+        identifier: Build_and_Test
+        type: CI
+        spec:
+          cloneCodebase: true
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: my-k8s-connector
+              namespace: harness-build
+          execution:
+            steps:
+              - step:
+                  type: Run
+                  name: Maven Build
+                  identifier: Maven_Build
+                  spec:
+                    connectorRef: account.harnessImage
+                    image: maven:3.9-amazoncorretto-17
+                    command: |-
+                      mvn clean package -DskipTests
+
+              - step:
+                  type: Run
+                  name: Run Tests
+                  identifier: Run_Tests
+                  spec:
+                    connectorRef: account.harnessImage
+                    image: maven:3.9-amazoncorretto-17
+                    command: |-
+                      mvn test
+
+              - step:
+                  type: Run
+                  name: Build Docker Image
+                  identifier: Build_Docker_Image
+                  spec:
+                    connectorRef: account.harnessImage
+                    image: docker:dind
+                    command: |-
+                      docker build -t ${DOCKER_IMAGE}:${BUILD_NUMBER} .
+                      docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}
+
+    - stage:
+        name: Deploy to Development
+        identifier: Deploy_to_Dev
+        type: CD
+        spec:
+          infrastructure:
+            environmentRef: dev
+            infrastructureDefinition:
+              type: KubernetesDirect
               spec:
-                paths:
-                  - /harness/target/*.xml
+                connectorRef: my-k8s-connector
+                namespace: development
+          execution:
+            steps:
+              - step:
+                  type: K8sRollingDeploy
+                  name: Deploy to Kubernetes
+                  identifier: Deploy_to_Kubernetes
+                  spec:
+                    skipDryRun: false
+                    manifests:
+                      - manifest:
+                          identifier: deployment
+                          type: K8sManifest
+                          spec:
+                            manifest: |
+                              apiVersion: apps/v1
+                              kind: Deployment
+                              metadata:
+                                name: harness-java-test-app
+                              spec:
+                                replicas: 2
+                                selector:
+                                  matchLabels:
+                                    app: harness-java-test-app
+                                template:
+                                  metadata:
+                                    labels:
+                                      app: harness-java-test-app
+                                  spec:
+                                    containers:
+                                    - name: harness-java-test-app
+                                      image: ${DOCKER_IMAGE}:${BUILD_NUMBER}
+                                      ports:
+                                      - containerPort: 8080
+                                      resources:
+                                        requests:
+                                          memory: "512Mi"
+                                          cpu: "250m"
+                                        limits:
+                                          memory: "1Gi"
+                                          cpu: "500m"
+                      - manifest:
+                          identifier: service
+                          type: K8sManifest
+                          spec:
+                            manifest: |
+                              apiVersion: v1
+                              kind: Service
+                              metadata:
+                                name: harness-java-test-app
+                              spec:
+                                type: ClusterIP
+                                ports:
+                                - port: 8080
+                                  targetPort: 8080
+                                selector:
+                                  app: harness-java-test-app
+
+variables:
+  - name: DOCKER_IMAGE
+    type: String
+    description: Docker image repository
+    value: your-registry/harness-java-test-app
