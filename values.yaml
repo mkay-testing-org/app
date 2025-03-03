@@ -1,125 +1,23 @@
-pipeline:
-  name: harness-java-test-app
-  identifier: harness_java_test_app
-  projectIdentifier: sbuserstandardbank3547
-  orgIdentifier: standardbank354org
-  tags: {}
-  stages:
-    - stage:
-        name: Build and Test
-        identifier: Build_and_Test
-        type: CI
-        spec:
-          cloneCodebase: true
-          infrastructure:
-            type: KubernetesDirect
-            spec:
-              connectorRef: my-k8s-connector
-              namespace: harness-build
-          execution:
-            steps:
-              - step:
-                  type: Run
-                  name: Maven Build
-                  identifier: Maven_Build
-                  spec:
-                    connectorRef: account.harnessImage
-                    image: maven:3.9-amazoncorretto-17
-                    command: |-
-                      mvn clean package -DskipTests
+name: <+service.name>
+replicas: 3
 
-              - step:
-                  type: Run
-                  name: Run Tests
-                  identifier: Run_Tests
-                  spec:
-                    connectorRef: account.harnessImage
-                    image: maven:3.9-amazoncorretto-17
-                    command: |-
-                      mvn test
+image: <+artifact.image>
+dockercfg: <+artifact.imagePullSecret>
 
-              - step:
-                  type: Run
-                  name: Build Docker Image
-                  identifier: Build_Docker_Image
-                  spec:
-                    connectorRef: account.harnessImage
-                    image: docker:dind
-                    command: |-
-                      docker build -t ${DOCKER_IMAGE}:${BUILD_NUMBER} .
-                      docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}
+namespace: <+infra.namespace>
 
-    - stage:
-        name: Deploy to Development
-        identifier: Deploy_to_Dev
-        type: CD
-        spec:
-          infrastructure:
-            environmentRef: dev
-            infrastructureDefinition:
-              type: KubernetesDirect
-              spec:
-                connectorRef: my-k8s-connector
-                namespace: development
-          execution:
-            steps:
-              - step:
-                  type: K8sRollingDeploy
-                  name: Deploy to Kubernetes
-                  identifier: Deploy_to_Kubernetes
-                  spec:
-                    skipDryRun: false
-                    manifests:
-                      - manifest:
-                          identifier: deployment
-                          type: K8sManifest
-                          spec:
-                            manifest: |
-                              apiVersion: apps/v1
-                              kind: Deployment
-                              metadata:
-                                name: harness-java-test-app
-                              spec:
-                                replicas: 2
-                                selector:
-                                  matchLabels:
-                                    app: harness-java-test-app
-                                template:
-                                  metadata:
-                                    labels:
-                                      app: harness-java-test-app
-                                  spec:
-                                    containers:
-                                    - name: harness-java-test-app
-                                      image: ${DOCKER_IMAGE}:${BUILD_NUMBER}
-                                      ports:
-                                      - containerPort: 8080
-                                      resources:
-                                        requests:
-                                          memory: "512Mi"
-                                          cpu: "250m"
-                                        limits:
-                                          memory: "1Gi"
-                                          cpu: "500m"
-                      - manifest:
-                          identifier: service
-                          type: K8sManifest
-                          spec:
-                            manifest: |
-                              apiVersion: v1
-                              kind: Service
-                              metadata:
-                                name: harness-java-test-app
-                              spec:
-                                type: ClusterIP
-                                ports:
-                                - port: 8080
-                                  targetPort: 8080
-                                selector:
-                                  app: harness-java-test-app
+# Service Type allow you to specify what kind of service you want.
+# Possible values for ServiceType are:
+# ClusterIP | NodePort | LoadBalancer | ExternalName
+serviceType: ClusterIP
 
-variables:
-  - name: DOCKER_IMAGE
-    type: String
-    description: Docker image repository
-    value: your-registry/harness-java-test-app
+sename: <+variable.username>
+# A Service can map an incoming port to any targetPort.
+# targetPort is where application is listening on inside the container.
+servicePort: 80
+serviceTargetPort: 8087
+
+env:
+  config:
+    HARNESS_BUILD: <+pipeline.sequenceId>
+    SERVICE_NAME: <+service.name>
